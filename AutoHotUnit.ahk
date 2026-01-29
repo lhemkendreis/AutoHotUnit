@@ -51,80 +51,83 @@ class AutoHotUnitManager {
     /** @type {AutoHotUnitCLIReporter} */
     reporter := ''
 
-
     RunSuites() {
-        this.reporter.onRunStart()
-        for i, suiteClass in this.suites {
-            suiteInstance := suiteClass()
-            suiteName := suiteInstance.__Class
-            this.reporter.onSuiteStart(suiteName)
+        try {
+            this.reporter.onRunStart()
+            for i, suiteClass in this.suites {
+                suiteInstance := suiteClass()
+                suiteName := suiteInstance.__Class
+                this.reporter.onSuiteStart(suiteName)
 
-            testNames := []
-            for propertyName in suiteInstance.base.OwnProps() {
-                ; If the property name starts with an underscore, skip it
-                underScoreIndex := InStr(propertyName, "_")
-                if (underScoreIndex == 1) {
-                    continue
-                }
+                testNames := []
+                for propertyName in suiteInstance.base.OwnProps() {
+                    ; If the property name starts with an underscore, skip it
+                    underScoreIndex := InStr(propertyName, "_")
+                    if (underScoreIndex == 1) {
+                        continue
+                    }
 
-                ; If the property name is one of the Suite base class methods, skip it
-                if (propertyName == "beforeAll" || propertyName == "beforeEach" || propertyName == "afterEach" || propertyName == "afterAll" || propertyName == "isDisabled") {
-                    continue
-                }
+                    ; If the property name is one of the Suite base class methods, skip it
+                    if (propertyName == "beforeAll" || propertyName == "beforeEach" || propertyName == "afterEach" || propertyName == "afterAll" || propertyName == "isDisabled") {
+                        continue
+                    }
 
-                if (GetMethod(suiteInstance, propertyName) is Func) {
-                    testNames.push(propertyName)
-                }
-            }
-
-            try {
-                suiteInstance.beforeAll()
-            } catch Error as e {
-                this.reporter.onTestResult("beforeAll", "failed", "", e)
-                continue
-            }
-
-            for j, testName in testNames {
-                if suiteInstance.isDisabled(testName) {
-                    this.reporter.printLine("test '" testName "' is disabled -> skip", 'green')
-                    continue
+                    if (GetMethod(suiteInstance, propertyName) is Func) {
+                        testNames.push(propertyName)
+                    }
                 }
 
                 try {
-                    suiteInstance.beforeEach()
+                    suiteInstance.beforeAll()
                 } catch Error as e {
-                    this.reporter.onTestResult(testName, "failed", "beforeEach", e)
+                    this.reporter.onTestResult("beforeAll", "failed", "", e)
                     continue
+                }
+
+                for j, testName in testNames {
+                    if suiteInstance.isDisabled(testName) {
+                        this.reporter.printLine("test '" testName "' is disabled -> skip", 'green')
+                        continue
+                    }
+
+                    try {
+                        suiteInstance.beforeEach()
+                    } catch Error as e {
+                        this.reporter.onTestResult(testName, "failed", "beforeEach", e)
+                        continue
+                    }
+
+                    try {
+                        local method := GetMethod(suiteInstance, testName)
+                        method(suiteInstance)
+                    } catch Error as e {
+                        this.reporter.onTestResult(testName, "failed", "test", e)
+                        continue
+                    }
+
+                    try {
+                        suiteInstance.afterEach()
+                    } catch Error as e {
+                        this.reporter.onTestResult(testName, "failed", "afterEach", e)
+                        continue
+                    }
+
+                    this.reporter.onTestResult(testName, "passed", "", "")
                 }
 
                 try {
-                    local method := GetMethod(suiteInstance, testName)
-                    method(suiteInstance)
+                    suiteInstance.afterAll()
                 } catch Error as e {
-                    this.reporter.onTestResult(testName, "failed", "test", e)
+                    this.reporter.onTestResult("afterAll", "failed", "", e)
                     continue
                 }
 
-                try {
-                    suiteInstance.afterEach()
-                } catch Error as e {
-                    this.reporter.onTestResult(testName, "failed", "afterEach", e)
-                    continue
-                }
-
-                this.reporter.onTestResult(testName, "passed", "", "")
+                this.reporter.onSuiteEnd(suiteName)
             }
-
-            try {
-                suiteInstance.afterAll()
-            } catch Error as e {
-                this.reporter.onTestResult("afterAll", "failed", "", e)
-                continue
-            }
-
-            this.reporter.onSuiteEnd(suiteName)
+            this.reporter.onRunComplete()
+        } catch AutoHotUnitAbortSignal as e {
+            this.reporter.printLine("(tests where interrupted early)", "red")
         }
-        this.reporter.onRunComplete()
     }
 }
 
@@ -162,20 +165,33 @@ class AutoHotUnitCLIReporter {
     onTestStart(testName) {
     }
 
+    /**
+     * 
+     * @param {String} testName The name of the test method.
+     * @param {'passed'|'failed'} status The status of the test result. Either 'passed' or 'failed'.
+     * @param {String} where Where the error was thrown. 
+     * @param {Error} error The error object.
+     */
     onTestResult(testName, status, where, error) {
         if (status != "passed" && status != "failed") {
             throw Error("Invalid status: " . status)
         }
 
-        prefix := this.green . "."
-        if (status == "failed") {
-            prefix := this.red . "x"
-        }
+        prefix := (status == "failed") ? (this.red . "x") : (this.green . ".")
 
         this.printLine("  " prefix " " testName " " status this.reset)
+
         if (status == "failed") {
-            this.printLine(this.red "      " error.Message this.reset)
+            errTypeInfo := (error is AutoHotUnitAssertError) ? ("") : ("[" Type(error) "] ")
+            this.printLine(this.red "      " errTypeInfo error.Message this.reset)
             this.failures.push(this.currentSuiteName "." testName " " where " failed:`r`n  " error.Message)
+
+            if (not (error is AutoHotUnitAssertError)) {
+                ; > print the stack trace right away
+                this.printLine("Stack Trace:`n" error.Stack "`n")
+                ; > abort the test run here, since a hard error was encountered.
+                throw AutoHotUnitAbortSignal()
+            }
         }
     }
 
@@ -208,6 +224,7 @@ class AutoHotUnitAsserter {
         this.activeSuite := acitveSuite
     }
 
+    /** @type {AutoHotUnitSuite} */
     activeSuite := 0x0
 
     static deepEqual(actual, expected) {
@@ -246,65 +263,65 @@ class AutoHotUnitAsserter {
 
     equal(actual, expected) {
         if (!AutoHotUnitAsserter.deepEqual(actual, expected)) {
-            throw Error("Assertion failed: " . AutoHotUnitAsserter.getPrintableValue(actual) . " != " . AutoHotUnitAsserter.getPrintableValue(expected))
+            throw AutoHotUnitAssertError("Assertion failed: " . AutoHotUnitAsserter.getPrintableValue(actual) . " != " . AutoHotUnitAsserter.getPrintableValue(expected))
         }
     }
 
     notEqual(actual, expected) {
         if (actual == expected) {
-            throw Error("Assertion failed: " . actual . " == " . expected)
+            throw AutoHotUnitAssertError("Assertion failed: " . actual . " == " . expected)
         }
     }
 
     isTrue(actual) {
         if (actual != true) {
-            throw Error("Assertion failed: " . actual . " is not true")
+            throw AutoHotUnitAssertError("Assertion failed: " . actual . " is not true")
         }
     }
 
     isFalse(actual) {
         if (actual == true) {
-            throw Error("Assertion failed: " . actual . " is not false")
+            throw AutoHotUnitAssertError("Assertion failed: " . actual . " is not false")
         }
     }
 
     isEmpty(actual) {
         if (actual != "") {
-            throw Error("Assertion failed: " . actual . " is not empty")
+            throw AutoHotUnitAssertError("Assertion failed: " . actual . " is not empty")
         }
     }
 
     notEmpty(actual) {
         if (actual == "") {
-            throw Error("Assertion failed: " . actual . " is empty")
+            throw AutoHotUnitAssertError("Assertion failed: " . actual . " is empty")
         }
     }
 
     fail(message) {
-        throw Error("Assertion failed: " . message)
+        throw AutoHotUnitAssertError("Assertion failed: " . message)
     }
 
     isAbove(actual, expected) {
         if (actual <= expected) {
-            throw Error("Assertion failed: " . actual . " is not above " . expected)
+            throw AutoHotUnitAssertError("Assertion failed: " . actual . " is not above " . expected)
         }
     }
 
     isAtLeast(actual, expected) {
         if (actual < expected) {
-            throw Error("Assertion failed: " . actual . " is not at least " . expected)
+            throw AutoHotUnitAssertError("Assertion failed: " . actual . " is not at least " . expected)
         }
     }
 
     isBelow(actual, expected) {
         if (actual >= expected) {
-            throw Error("Assertion failed: " . actual . " is not below " . expected)
+            throw AutoHotUnitAssertError("Assertion failed: " . actual . " is not below " . expected)
         }
     }
 
     isAtMost(actual, expected) {
         if (actual > expected) {
-            throw Error("Assertion failed: " . actual . " is not at most " . expected)
+            throw AutoHotUnitAssertError("Assertion failed: " . actual . " is not at most " . expected)
         }
     }
 
@@ -322,9 +339,9 @@ class AutoHotUnitAsserter {
         try {
             ; > start the recursive comparison...
             compareRecursively([], actual, expected)
-        } catch ComparisonError as e {
+        } catch AutoHotUnitAsserter.ComparisonError as e {
             ; ! the structures are not equal -> fail the assertion.
-            this.assert.fail(e.Message "`n --> " e.What)
+            throw AutoHotUnitAssertError(e.Message "`n --> " e.What)
         }
         ; ^^^^^^ The function body ends here. What follows are just local functions.
 
@@ -400,7 +417,7 @@ class AutoHotUnitAsserter {
              * @throws {ComparisonError} The created error object. The error's `What` property contains a description of where in the structure the comparison failed. 
              */
             compErr(msg) {
-                throw ComparisonError(msg, getTrace(), { actValue: actValue, expValue: expValue })
+                throw AutoHotUnitAsserter.ComparisonError(msg, getTrace(), { actValue: actValue, expValue: expValue })
             }
 
             /**
@@ -460,4 +477,10 @@ class AutoHotUnitAsserter {
     class ComparisonError extends Error {
         ; (empty implmentation)
     }
+}
+
+class AutoHotUnitAssertError extends Error {
+}
+
+class AutoHotUnitAbortSignal extends Error {
 }
