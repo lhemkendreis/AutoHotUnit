@@ -7,9 +7,7 @@ FileEncoding("UTF-8")
 global ahu := AutoHotUnitManager(AutoHotUnitCLIReporter())
 
 class AutoHotUnitSuite {
-    Verbose := false
-
-    assert := AutoHotUnitAsserter(this)
+    assert := AutoHotUnitAsserter()
 
     ; Executed once before any tests execute
     beforeAll() {
@@ -36,6 +34,7 @@ class AutoHotUnitSuite {
 class AutoHotUnitManager {
     Suite := AutoHotUnitSuite
     suites := []
+    Verbose := false
 
     __New(reporter) {
         this.reporter := reporter
@@ -51,8 +50,17 @@ class AutoHotUnitManager {
     /** @type {AutoHotUnitCLIReporter} */
     reporter := ''
 
+    /** Weather or not to abort early when an unexpected error is encountered (i.e. not just a failed assertion). This implies `PrintStackTrace`. */
+    AbortOnError := false
+
+    /** Weather or not to print the stack trace of unexpected errors. This is overridden by `AbortOnError`. */
+    PrintStackTrace := false
+
+    /**
+     * Runs all registered test suites in order.
+     */
     RunSuites() {
-        try {
+        try { ; <- try to catch abort signals
             this.reporter.onRunStart()
             for i, suiteClass in this.suites {
                 suiteInstance := suiteClass()
@@ -126,12 +134,14 @@ class AutoHotUnitManager {
             }
             this.reporter.onRunComplete()
         } catch AutoHotUnitAbortSignal as e {
+            ; ! the tests where aborted, the error is already printed to the console -> exit.
             this.reporter.printLine("(tests where interrupted early)", "red")
         }
     }
 }
 
 class AutoHotUnitCLIReporter {
+
     currentSuiteName := ""
     failures := []
     ; @See https://misc.flogisoft.com/bash/tip_colors_and_formatting
@@ -177,20 +187,28 @@ class AutoHotUnitCLIReporter {
             throw Error("Invalid status: " . status)
         }
 
-        prefix := (status == "failed") ? (this.red . "x") : (this.green . ".")
+        prefix := (status == "failed") ? (this.red . "✕") : (this.green . "✓")
 
         this.printLine("  " prefix " " testName " " status this.reset)
 
         if (status == "failed") {
-            errTypeInfo := (error is AutoHotUnitAssertError) ? ("") : ("[" Type(error) "] ")
+            isAssertionError := error is AutoHotUnitAssertError
+            ; > print the error's class name if it was an unexpected one
+            errTypeInfo := (isAssertionError) ? ("") : ("[" Type(error) "] ")
             this.printLine(this.red "      " errTypeInfo error.Message this.reset)
             this.failures.push(this.currentSuiteName "." testName " " where " failed:`r`n  " error.Message)
 
-            if (not (error is AutoHotUnitAssertError)) {
-                ; > print the stack trace right away
-                this.printLine("Stack Trace:`n" error.Stack "`n")
-                ; > abort the test run here, since a hard error was encountered.
-                throw AutoHotUnitAbortSignal()
+            if ( not isAssertionError) {
+                ; ! we encountered an unexpected error!
+                if (ahu.PrintStackTrace or ahu.AbortOnError) {
+                    ; > print the stack trace
+                    this.printLine("Stack Trace:`n" error.Stack "`n")
+                }
+
+                if (ahu.AbortOnError) {
+                    ; > abort the test run here, since a hard error was encountered.
+                    throw AutoHotUnitAbortSignal()
+                }
             }
         }
     }
@@ -219,14 +237,6 @@ class AutoHotUnitCLIReporter {
 }
 
 class AutoHotUnitAsserter {
-
-    __New(acitveSuite) {
-        this.activeSuite := acitveSuite
-    }
-
-    /** @type {AutoHotUnitSuite} */
-    activeSuite := 0x0
-
     static deepEqual(actual, expected) {
         if (actual is Array && expected is Array) {
             if (actual.Length != expected.Length) {
@@ -330,11 +340,9 @@ class AutoHotUnitAsserter {
      * @param {AutoHotUnitSuite} this The test suite which is calling the function. This allows the function to act as a method, when assigned to one of the test suite's properties.
      * @param {Any} actual The actual value.
      * @param {Any} expected The expected value.
-     * @param {Bool} verbose Weather to print detailed log messages.
      */
     assertEqualStructure(actual, expected) {
-        writeDebug := (this.activeSuite.Verbose) ? OutputDebug : (text) => {}
-        ; ^ the caller can set the 'Verbose' property to enable logging
+        writeVerbose := (ahu.Verbose) ? OutputDebug : (text) => {}
 
         try {
             ; > start the recursive comparison...
@@ -354,7 +362,7 @@ class AutoHotUnitAsserter {
         compareRecursively(steps, actValue, expValue) {
             actType := Type(actValue)
             expType := Type(expValue)
-            writeDebug("comparing " getTrace() "`n")
+            writeVerbose("comparing " getTrace() "`n")
             if (actType != expType) {
                 compErr("expected type is " expType (
                     IsNumber(expValue) ? " (" expValue ")" : ""
@@ -385,7 +393,7 @@ class AutoHotUnitAsserter {
                     ; > make sure every expected value is there..
                     for index, expItem in expValue {
                         actItem := actValue[index]
-                        writeDebug("comparing array item #" index "`n")
+                        writeVerbose("comparing array item #" index "`n")
                         compareRecursively(next(index), actItem, expItem)
                     }
                     ; > make sure no additional values are present..
@@ -401,7 +409,7 @@ class AutoHotUnitAsserter {
                 case "Integer", "Float", "ComValue":
                     ; ^ (type ComValue may be expected to represent true/false/null)
                     ; > compare the scalar values..
-                    writeDebug("comparing values of scalar type " actType "`n")
+                    writeVerbose("comparing values of scalar type " actType "`n")
                     if (actValue != expValue) {
                         compErr("expected " expType "-value " String(expValue) ", but got " String(actValue))
                     }

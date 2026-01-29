@@ -3,11 +3,13 @@ SendMode("Input")
 #Warn
 
 ; Include AutoHotUnit. The path will be different on your system.
-#Include "%A_ScriptDir%\..\AutoHotUnit.ahk"
+#Include ..\AutoHotUnit.ahk
 
 ; Include each test file
 ; See individual test files for more information
-#Include "%A_ScriptDir%\math.test.ahk"
+#Include math.test.ahk
+
+#Include other.test.ahk
 
 ; Run all test suites
 ahu.RunSuites()
