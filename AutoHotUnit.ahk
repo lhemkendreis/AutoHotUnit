@@ -22,6 +22,11 @@ class AutoHotUnitSuite {
     ; Executed once after all tests have executed
     afterAll() {
     }
+
+    ; Execute once for each test, to determine weather or not it should be skipped
+    isDisabled(testMethodName) {
+        return false
+    }
 }
 
 class AutoHotUnitManager {
@@ -39,13 +44,17 @@ class AutoHotUnitManager {
         }
     }
 
+    /** @type {AutoHotUnitCLIReporter} */
+    reporter := ''
+
+
     RunSuites() {
         this.reporter.onRunStart()
         for i, suiteClass in this.suites {
             suiteInstance := suiteClass()
             suiteName := suiteInstance.__Class
             this.reporter.onSuiteStart(suiteName)
-            
+
             testNames := []
             for propertyName in suiteInstance.base.OwnProps() {
                 ; If the property name starts with an underscore, skip it
@@ -55,7 +64,7 @@ class AutoHotUnitManager {
                 }
 
                 ; If the property name is one of the Suite base class methods, skip it
-                if (propertyName == "beforeAll" || propertyName == "beforeEach" || propertyName == "afterEach" || propertyName == "afterAll") {
+                if (propertyName == "beforeAll" || propertyName == "beforeEach" || propertyName == "afterEach" || propertyName == "afterAll" || propertyName == "isDisabled") {
                     continue
                 }
 
@@ -63,8 +72,6 @@ class AutoHotUnitManager {
                     testNames.push(propertyName)
                 }
             }
-
-
 
             try {
                 suiteInstance.beforeAll()
@@ -74,6 +81,11 @@ class AutoHotUnitManager {
             }
 
             for j, testName in testNames {
+                if suiteInstance.isDisabled(testName) {
+                    this.reporter.printLine("test '" testName "' is disabled -> skip", 'green')
+                    continue
+                }
+
                 try {
                     suiteInstance.beforeEach()
                 } catch Error as e {
@@ -83,7 +95,6 @@ class AutoHotUnitManager {
 
                 try {
                     local method := GetMethod(suiteInstance, testName)
-                    
                     method(suiteInstance)
                 } catch Error as e {
                     this.reporter.onTestResult(testName, "failed", "test", e)
@@ -116,11 +127,21 @@ class AutoHotUnitManager {
 class AutoHotUnitCLIReporter {
     currentSuiteName := ""
     failures := []
+    ; @See https://misc.flogisoft.com/bash/tip_colors_and_formatting
     red := "[31m"
     green := "[32m"
     reset := "[0m"
 
-    printLine(str) {
+    /**
+     * 
+     * @param str 
+     * @param {'green'|'red'} color 
+     */
+    printLine(str, color := unset) {
+        if IsSet(color) {
+            colCode := this.%color%
+            str := colCode str this.reset
+        }
         FileAppend(str, "*", "UTF-8")
         FileAppend("`r`n", "*")
     }
@@ -133,7 +154,7 @@ class AutoHotUnitCLIReporter {
         this.printLine(suiteName ":")
         this.currentSuiteName := suiteName
     }
-    
+
     onTestStart(testName) {
     }
 
@@ -159,7 +180,7 @@ class AutoHotUnitCLIReporter {
 
     onRunComplete() {
         this.printLine("")
-        postfix := "All tests passed." 
+        postfix := "All tests passed."
         if (this.failures.Length > 0) {
             postfix := this.failures.Length . " test(s) failed."
         }
@@ -251,7 +272,7 @@ class AutoHotUnitAsserter {
     fail(message) {
         throw Error("Assertion failed: " . message)
     }
-    
+
     isAbove(actual, expected) {
         if (actual <= expected) {
             throw Error("Assertion failed: " . actual . " is not above " . expected)
