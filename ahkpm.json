@@ -1,15 +1,15 @@
 {
   "version": "2.1.0",
   "description": "A unit testing framework for AutoHotkey",
-  "repository": "https://github.com/joshuacc/AutoHotUnit",
-  "website": "https://github.com/joshuacc/AutoHotUnit",
+  "repository": "https://github.com/lhemkendreis/AutoHotUnit",
+  "website": "https://github.com/lhemkendreis/AutoHotUnit",
   "license": "MIT",
-  "issueTracker": "https://github.com/joshuacc/AutoHotUnit/issues",
+  "issueTracker": "https://github.com/lhemkendreis/AutoHotUnit/issues",
   "include": "AutoHotUnit.ahk",
   "author": {
-    "name": "Joshua Clanton",
-    "email": "",
-    "website": "https://joshuaclanton.dev"
+    "name": "Lennard Hemkendreis",
+    "email": "lhemkendreis@me.com",
+    "website": ""
   },
   "dependencies": {}
 }

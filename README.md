@@ -1,8 +1,6 @@
 # AutoHotUnit - A unit testing framework for AutoHotkey
 
-While there have been other unit testing frameworks for AutoHotkey, I found most
-of them a bit clumsy to work with. This is my attempt to modernize the 
-way AutoHotkey unit testing is done.
+This project started as a fork of [AutoHotUnit by Joshua Clanton](https://github.com/joshuacc/AutoHotUnit) (🙏).
 
 ## Features
 
@@ -19,11 +17,7 @@ The recommended approach for installation is to use [ahkpm][].
 
 To get the latest version of AutoHotUnit (which requires AutoHotkey 2):
 
-`ahkpm install gh:joshuacc/AutoHotUnit`
-
-To get previous versions, which supports AutoHotkey 1:
-
-`ahkpm install gh:joshuacc/AutoHotUnit@1`
+`ahkpm install gh:lhemkendreis/AutoHotUnit`
 
 ## Usage
 
@@ -36,7 +30,7 @@ Create a file named `tests.ahk` in your project directory.
 
 ```autohotkey
 ; Include AutoHotUnit. The path may be different on your system.
-#Include, %A_ScriptDir%\ahkpm-modules\github.com\joshuacc\AutoHotUnit\AutoHotUnit.ahk
+#Include, %A_ScriptDir%\ahkpm-modules\github.com\lhemkendreis\AutoHotUnit\AutoHotUnit.ahk
 
 ; Include each test file
 ; See individual test files for more information
@@ -50,10 +44,9 @@ ahu.RunSuites()
 ; The echo is required in order to print output to the terminal.
 ```
 
-
 ### Defining test suites
 
-Create a new file containing one or more test suites. I recommend naming it 
+Create a new file containing one or more test suites. I recommend naming it
 `*.test.ahk`
 
 ```autohotkey
@@ -104,6 +97,7 @@ The current list:
 - `isAtLeast(actual, expected)`
 - `isBelow(actual, expected)`
 - `isAtMost(actual, expected)`
+- `assertEqualStructure(actual, expected)`
 
 ### Suite lifecycle methods
 
@@ -113,7 +107,6 @@ Each AutoHotUnit test suite supports four lifecycle methods:
 - `beforeEach`: Executed once before each test. Suitable for per-test setup.
 - `afterEach`: Executed once after each test. Suitable for per-test cleanup.
 - `afterAll`: Executed once per suite after all tests and other lifecycle methods. Suitable for per-suite cleanup.
-
 
 ```autohotkey
 class MathSuite extends AutoHotUnitSuite {
@@ -161,6 +154,5 @@ class MathSuite extends AutoHotUnitSuite {
     }
 }
 ```
-
 
 [ahkpm]:https://ahkpm.dev
