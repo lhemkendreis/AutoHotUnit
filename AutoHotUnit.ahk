@@ -467,7 +467,9 @@ class AutoHotUnitAsserter {
          * @returns {String} The densified string.
          */
         densify(str) {
-            return StrReplace(str, "`n", "``n")
+            str := StrReplace(str, "`n", "``n")
+            str := StrReplace(str, "`r", "``r")
+            return str
         }
 
         shortStrDesc(str) {

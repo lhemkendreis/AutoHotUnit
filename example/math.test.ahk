@@ -1,6 +1,6 @@
 #SingleInstance Force
 
-#Include "%A_ScriptDir%\math.ahk"
+#Include "math.ahk"
 
 ; Register the test suite with AutoHotUnit
 ahu.RegisterSuite(MathSuite)

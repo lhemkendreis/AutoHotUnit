@@ -5,11 +5,10 @@ SendMode("Input")
 ; Include AutoHotUnit. The path will be different on your system.
 #Include ..\AutoHotUnit.ahk
 
-; Include each test file
-; See individual test files for more information
+; Include each test file (See individual test files for more information)
 #Include math.test.ahk
-
 #Include other.test.ahk
+#Include assertEqualStructure.test.ahk
 
 ; Run all test suites
 ahu.RunSuites()
