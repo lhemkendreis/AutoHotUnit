@@ -7,43 +7,116 @@ FileEncoding("UTF-8")
 global ahu := AutoHotUnitManager(AutoHotUnitCLIReporter())
 
 class AutoHotUnitSuite {
+    /**
+     * @type {AutoHotUnitAsserter}
+     */
     assert := AutoHotUnitAsserter()
 
-    ; Executed once before any tests execute
+    /**
+     * Executed once before any tests execute.
+     */
     beforeAll() {
     }
 
-    ; Executed once before each test is executed
+    /**
+     * Executed once before each test is executed.
+     */
     beforeEach() {
     }
 
-    ; Executed once after each test is executed
+    /**
+     * Executed once after each test is executed.
+     */
     afterEach() {
     }
 
-    ; Executed once after all tests have executed
+    /**
+     * Executed once after all tests have executed.
+     */
     afterAll() {
     }
 
-    ; Execute once for each test, to determine weather or not it should be skipped
-    isDisabled(testMethodName) {
+    /**
+     * Execute once for each test, to determine weather or not it should be skipped. 
+     * @param testName The name of the test. The default implementation returns false for everything. This may be overridden by child classes.
+     * @returns {Integer} True, if the test should be skipped.
+     */
+    isDisabled(testName) {
         return false
+    }
+
+    /**
+     * Executes once for each potential test method found on the test suite. Should return a true value, if the given method name should be considered a test. The default implementation returns true if the given method name starts with "test". This may be overridden by child classes.
+     * @param methName The name of the test method.
+     * @returns {Bool} True, if the method should be considered a test.
+     */
+    isTest(methName) {
+        return SubStr(methName, 1, 4) = "test"
+    }
+
+    /**
+     * Registers the given function as a test under the given name.
+     * @param name The name of the test.
+     * @param func The body of the test.
+     */
+    registerTest(name, func) {
+        ahu.registerTest(this, name, func)
     }
 }
 
 class AutoHotUnitManager {
-    Suite := AutoHotUnitSuite
-    suites := []
+    /** The list of registered test suite classes. */
+    testSuiteDict := Map()
+    /** The test methods  */
+    testFuncDict := Map()
+
+    /** Wether or not to give verbose output. */
     Verbose := false
 
+    /**
+     * Creates a new AHU instance with the given reporter.
+     * @param {AutoHotUnitCLIReporter} reporter The reporter instance, which writes handles ouptut messages.
+     */
     __New(reporter) {
         this.reporter := reporter
     }
 
+    /**
+     * Registers a test function under the given test 
+     * @param suite The test suite for which to register the test.
+     * @param name The name of the test.
+     * @param func The body of the test.
+     * @protected This method is called internally by {@link AutoHotUnitSuite#registerTest}.
+     */
+    registerTest(suite, name, func) {
+        suiteName := suite.__Class
+        if not this.testSuiteDict.Has(suiteName) {
+            throw ValueError("not a registered test suite", -2, suite)
+        }
+        if ( not this.testFuncDict.Has(suiteName)) {
+            this.testFuncDict.Set(suiteName, Map())
+        }
+        testFuncDict := this.testFuncDict.Get(suiteName)
+        if testFuncDict.Has(name) {
+            throw ValueError("test suite " suiteName " already has a test function registered under the name '" name "'")
+        }
+        testFuncDict.Set(name, func)
+    }
+
+    /**
+     * Registers the given subclasses as test suites.
+     * @param {AutoHotUnitSuite} SuiteSubclasses One or more subclasses to register.
+     */
     RegisterSuite(SuiteSubclasses*)
     {
-        for i, subclass in SuiteSubclasses {
-            this.suites.push(subclass)
+        for subclass in SuiteSubclasses {
+            if (Type(subclass) != "Class") {
+                throw TypeError("expected class but got " Type(subclass), -2, subclass)
+            }
+            if ( not subclass.HasBase(AutoHotUnitSuite)) {
+                throw TypeError("expected AutoHotUnitSuite but got " subclass.Prototype.__Class)
+            }
+            this.testSuiteDict.Set(subclass.Prototype.__Class, subclass)
         }
     }
 
@@ -60,28 +133,42 @@ class AutoHotUnitManager {
      * Runs all registered test suites in order.
      */
     RunSuites() {
+        static protectedProps := Map()
+        if not protectedProps.Count {
+            for pName in ["beforeAll", "beforeEach", "afterEach", "afterAll", "isDisabled", "isTest"] {
+                protectedProps.Set(pName, true)
+            }
+        }
+
         try { ; <- try to catch abort signals
             this.reporter.onRunStart()
-            for i, suiteClass in this.suites {
+            for suiteName, suiteClass in this.testSuiteDict {
                 suiteInstance := suiteClass()
-                suiteName := suiteInstance.__Class
                 this.reporter.onSuiteStart(suiteName)
 
-                testNames := []
+                testFuncDict := Map()
                 for propertyName in suiteInstance.base.OwnProps() {
-                    ; If the property name starts with an underscore, skip it
-                    underScoreIndex := InStr(propertyName, "_")
-                    if (underScoreIndex == 1) {
+                    ; If the property name is one of the suite base class methods, skip it
+                    if protectedProps.Has(propertyName) {
                         continue
                     }
 
-                    ; If the property name is one of the Suite base class methods, skip it
-                    if (propertyName == "beforeAll" || propertyName == "beforeEach" || propertyName == "afterEach" || propertyName == "afterAll" || propertyName == "isDisabled") {
+                    if not suiteInstance.isTest(propertyName) {
                         continue
                     }
 
-                    if (GetMethod(suiteInstance, propertyName) is Func) {
-                        testNames.push(propertyName)
+                    propVal := GetMethod(suiteInstance, propertyName)
+                    if (propVal is Func) {
+                        testFuncDict.Set(propertyName, propVal.Bind(suiteInstance))
+                    }
+                }
+
+                if (this.testFuncDict.Has(suiteName)) {
+                    for testName, testFunc in this.testFuncDict.Get(suiteName) {
+                        if testFuncDict.Has(testName) {
+                            throw Error("the dynamically registered test '" testName "' clashed with the identically named instance member test method " suiteName "." testName)
+                        }
+                        testFuncDict.Set(testName, testFunc)
                     }
                 }
 
@@ -92,35 +179,39 @@ class AutoHotUnitManager {
                     continue
                 }
 
-                for j, testName in testNames {
-                    if suiteInstance.isDisabled(testName) {
-                        this.reporter.printLine("test '" testName "' is disabled -> skip", 'green')
-                        continue
-                    }
+                if not testFuncDict.Count {
+                    this.reporter.printLine("(no tests have been registered yet!)", "red")
+                } else {
+                    for testName, testFunc in testFuncDict {
+                        if suiteInstance.isDisabled(testName) {
+                            this.reporter.printLine("test '" testName "' is disabled -> skip", 'green')
+                            continue
+                        }
 
-                    try {
-                        suiteInstance.beforeEach()
-                    } catch Error as e {
-                        this.reporter.onTestResult(testName, "failed", "beforeEach", e)
-                        continue
-                    }
+                        try {
+                            suiteInstance.beforeEach()
+                        } catch Error as e {
+                            this.reporter.onTestResult(testName, "failed", "beforeEach", e)
+                            continue
+                        }
 
-                    try {
-                        local method := GetMethod(suiteInstance, testName)
-                        method(suiteInstance)
-                    } catch Error as e {
-                        this.reporter.onTestResult(testName, "failed", "test", e)
-                        continue
-                    }
+                        try {
+                            this.reporter.onTestStart(testName)
+                            testFunc()
+                        } catch Error as e {
+                            this.reporter.onTestResult(testName, "failed", "test", e)
+                            continue
+                        }
 
-                    try {
-                        suiteInstance.afterEach()
-                    } catch Error as e {
-                        this.reporter.onTestResult(testName, "failed", "afterEach", e)
-                        continue
-                    }
+                        try {
+                            suiteInstance.afterEach()
+                        } catch Error as e {
+                            this.reporter.onTestResult(testName, "failed", "afterEach", e)
+                            continue
+                        }
 
-                    this.reporter.onTestResult(testName, "passed", "", "")
+                        this.reporter.onTestResult(testName, "passed", "", "")
+                    }
                 }
 
                 try {
@@ -141,7 +232,6 @@ class AutoHotUnitManager {
 }
 
 class AutoHotUnitCLIReporter {
-
     currentSuiteName := ""
     failures := []
     ; @See https://misc.flogisoft.com/bash/tip_colors_and_formatting
@@ -155,12 +245,18 @@ class AutoHotUnitCLIReporter {
      * @param {'green'|'red'} color 
      */
     printLine(str, color := unset) {
+        ; TODO use my AnsiColorPrinter instead
         if IsSet(color) {
             colCode := this.%color%
             str := colCode str this.reset
         }
-        FileAppend(str, "*", "UTF-8")
-        FileAppend("`r`n", "*")
+        try {
+            FileAppend(str "`n", "*", "UTF-8 `n")
+        } catch Error as err {
+            throw Error("The standard output handle (*) is not valid."
+                . "`nYou may need to pipe the output to another command (e.g. echo),"
+                . " to prevent this error.", -1, err.Message)
+        }
     }
 
     onRunStart() {
@@ -168,11 +264,12 @@ class AutoHotUnitCLIReporter {
     }
 
     onSuiteStart(suiteName) {
-        this.printLine(suiteName ":")
+        this.printLine("starting test suite " suiteName "")
         this.currentSuiteName := suiteName
     }
 
     onTestStart(testName) {
+        this.printLine("Starting test '" testName "'")
     }
 
     /**
@@ -192,13 +289,21 @@ class AutoHotUnitCLIReporter {
 
         this.printLine("  " prefix " " testName " " status, prColor)
 
+        indentMsg(s) {
+            static indentation := "   >| "
+            return StrReplace(indentation s, "`n", "`n" indentation)
+        }
+
         if (status == "failed") {
             isAssertionError := error is AutoHotUnitAssertError
             ; > print the error's class name if it was an unexpected one
             errTypeInfo := (isAssertionError) ? ("") : ("[" Type(error) "] ")
-            errMsg := error.Message . (error.Extra = '' ? "" : " (Specifically: '" error.Extra "')" )
-            this.printLine("      " errTypeInfo errMsg, prColor)
-            this.failures.push(this.currentSuiteName "." testName " " where " failed:`r`n  " errMsg)
+            errMsg := error.Message . (error.Extra = '' ? "" : " (Specifically: '" error.Extra "')")
+            indentedErrMsg := indentMsg(errTypeInfo errMsg)
+            ; > print the message right now (live)..
+            this.printLine(indentedErrMsg, prColor)
+            ; > store the message for the final summary at the end..
+            this.failures.push(this.currentSuiteName "." testName " " where " failed:`n" indentedErrMsg)
 
             if ( not isAssertionError) {
                 ; ! we encountered an unexpected error!
@@ -216,6 +321,7 @@ class AutoHotUnitCLIReporter {
     }
 
     onSuiteEnd(suiteName) {
+        this.printLine("ending test suite '" suiteName "'")
     }
 
     onRunComplete() {
@@ -291,9 +397,21 @@ class AutoHotUnitAsserter {
         }
     }
 
+    isTruish(actual) {
+        if ( not actual) {
+            throw AutoHotUnitAssertError("Assertion failed: " . actual . " is not truish")
+        }
+    }
+
     isFalse(actual) {
-        if (actual == true) {
+        if (actual != false) {
             throw AutoHotUnitAssertError("Assertion failed: " . actual . " is not false")
+        }
+    }
+
+    isFalsish(actual) {
+        if (actual) {
+            throw AutoHotUnitAssertError("Assertion failed: " . actual . " is not falsish")
         }
     }
 
