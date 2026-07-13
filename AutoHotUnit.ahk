@@ -187,16 +187,18 @@ class AutoHotUnitCLIReporter {
             throw Error("Invalid status: " . status)
         }
 
-        prefix := (status == "failed") ? (this.red . "✕") : (this.green . "✓")
+        prColor := (status == "failed") ? "red" : "green"
+        prefix := (status == "failed") ? "✕" : "✓"
 
-        this.printLine("  " prefix " " testName " " status this.reset)
+        this.printLine("  " prefix " " testName " " status, prColor)
 
         if (status == "failed") {
             isAssertionError := error is AutoHotUnitAssertError
             ; > print the error's class name if it was an unexpected one
             errTypeInfo := (isAssertionError) ? ("") : ("[" Type(error) "] ")
-            this.printLine(this.red "      " errTypeInfo error.Message this.reset)
-            this.failures.push(this.currentSuiteName "." testName " " where " failed:`r`n  " error.Message)
+            errMsg := error.Message . (error.Extra = '' ? "" : " (Specifically: '" error.Extra "')" )
+            this.printLine("      " errTypeInfo errMsg, prColor)
+            this.failures.push(this.currentSuiteName "." testName " " where " failed:`r`n  " errMsg)
 
             if ( not isAssertionError) {
                 ; ! we encountered an unexpected error!
@@ -229,7 +231,7 @@ class AutoHotUnitCLIReporter {
         }
 
         for i, failure in this.failures {
-            this.printLine(this.red failure this.reset)
+            this.printLine(failure, "red")
         }
 
         Exit(this.failures.Length)

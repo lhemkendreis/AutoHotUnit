@@ -21,7 +21,7 @@ class OtherSuite extends AutoHotUnitSuite {
     
     exampleErrorTest() {
         OutputDebug("Dieser Test wirft eine ausnahme. >:O")
-        throw Error("this is the error message")
+        throw Error("this is the error message", -1, "this is the error extra")
     }
 }
 
