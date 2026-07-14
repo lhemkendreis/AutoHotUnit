@@ -3,7 +3,7 @@
 #Requires AutoHotkey v2.0
 
 class OtherSuite extends AutoHotUnitSuite {
-    isDisabled(testMethodName) {
+    isDisabled(testMethodName, *) {
         return testMethodName = 'dyntest_2'
     }
 

@@ -45,9 +45,10 @@ class AutoHotUnitSuite {
     /**
      * Execute once for each test, to determine weather or not it should be skipped. 
      * @param testName The name of the test. The default implementation returns false for everything. This may be overridden by child classes.
+     * @param testFunc The test function as registered.
      * @returns {Integer} True, if the test should be skipped.
      */
-    isDisabled(testName) {
+    isDisabled(testName, testFunc) {
         return false
     }
 
@@ -206,7 +207,7 @@ class AutoHotUnitManager {
                     ;     this.reporter.printLine("skipping remaining tests")
                     ; }
                     for testName, testFunc in gatheredTests {
-                        if suiteInstance.isDisabled(testName) {
+                        if suiteInstance.isDisabled(testName, testFunc) {
                             this.reporter.onTestResult(testName, 'skipped')
                             continue
                         }
