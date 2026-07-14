@@ -17,11 +17,14 @@ FileEncoding('UTF-8')
 #Include other.test.ahk
 
 runAhuTests() {
+    out(s) {
+        OutputDebug("[" A_ScriptName "] " s "`n")
+    }
     try {
-        OutputDebug("trying to register a random class (should fail)`n")
+        out("trying to register a random class (should fail)")
         ahu.RegisterSuite(RandomClass)
     } catch Error as err {
-        OutputDebug("trying to register a random class failed as expected: " err.Message "`n")
+        out("trying to register a random class failed as expected: " err.Message)
     }
     else {
         throw Error("trying to register a random class should have thrown an error but it didn't!?")
@@ -34,11 +37,11 @@ runAhuTests() {
     try {
         ahu.PrintStackTrace := true
         ahu.Verbose := true
-        OutputDebug("running test suites`n")
+        out("running test suites")
         ahu.RunSuites()
-        OutputDebug("done running test suites`n")
+        out("done running test suites")
     } catch AutoHotUnitAbortSignal as abort {
-        OutputDebug("received AHU abort message: " abort.Message "`n")
+        out("received AHU abort message: " abort.Message)
     }
 }
 runAhuTests()

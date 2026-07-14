@@ -4,7 +4,7 @@
 
 class OtherSuite extends AutoHotUnitSuite {
     isDisabled(testMethodName) {
-        return false
+        return testMethodName = 'dyntest_2'
     }
 
     __New() {
@@ -20,6 +20,18 @@ class OtherSuite extends AutoHotUnitSuite {
             testName := "dyntest_" A_Index
             this.registerTest(testName, dynTestFunc.Bind(testName, this))
         }
+    }
+
+    isTest(testName) {
+        if testName = 'test_notReallyATest' {
+            OutputDebug("considering " testName " to not be a test method`n")
+            return false
+        }
+        return super.isTest(testName)
+    }
+
+    test_notReallyATest() {
+        throw "This test should not be called."
     }
 
     test_exampleSucc() {

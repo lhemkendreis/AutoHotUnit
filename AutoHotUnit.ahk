@@ -3,11 +3,17 @@
 FileEncoding("UTF-8")
 #Include <Join>
 
-
+/**
+ * The global AutoHotUnitManager instance. Use this to register and start test suites.
+ */
 global ahu := AutoHotUnitManager(AutoHotUnitCLIReporter())
 
+/**
+ * The base class for all AHU suites. Child classes must be registered with a AHU manager instance {@link ahu}.
+ */
 class AutoHotUnitSuite {
     /**
+     * A collection of assert functions to be used during testing.
      * @type {AutoHotUnitAsserter}
      */
     assert := AutoHotUnitAsserter()
@@ -64,14 +70,27 @@ class AutoHotUnitSuite {
     }
 }
 
+/**
+ * A central access point for registering and running AHU suites. A global instance of this class is provided as {@link ahu}.
+ */
 class AutoHotUnitManager {
     /** The list of registered test suite classes. */
-    testSuiteDict := Map()
-    /** The test methods  */
-    testFuncDict := Map()
+    registeredTestSuites := Map()
+
+    /** The test methods which are registered directly. */
+    registeredTestFuncs := Map()
 
     /** Wether or not to give verbose output. */
     Verbose := false
+
+    /** @type {AutoHotUnitCLIReporter} */
+    reporter := ''
+
+    /** Weather or not to abort early when an unexpected error is encountered (i.e. not just a failed assertion). This implies `PrintStackTrace`. */
+    AbortOnError := false
+
+    /** Weather or not to print the stack trace of unexpected errors. This is overridden by `AbortOnError`. */
+    PrintStackTrace := false
 
     /**
      * Creates a new AHU instance with the given reporter.
@@ -90,13 +109,13 @@ class AutoHotUnitManager {
      */
     registerTest(suite, name, func) {
         suiteName := suite.__Class
-        if not this.testSuiteDict.Has(suiteName) {
+        if not this.registeredTestSuites.Has(suiteName) {
             throw ValueError("not a registered test suite", -2, suite)
         }
-        if ( not this.testFuncDict.Has(suiteName)) {
-            this.testFuncDict.Set(suiteName, Map())
+        if ( not this.registeredTestFuncs.Has(suiteName)) {
+            this.registeredTestFuncs.Set(suiteName, Map())
         }
-        testFuncDict := this.testFuncDict.Get(suiteName)
+        testFuncDict := this.registeredTestFuncs.Get(suiteName)
         if testFuncDict.Has(name) {
             throw ValueError("test suite " suiteName " already has a test function registered under the name '" name "'")
         }
@@ -116,40 +135,39 @@ class AutoHotUnitManager {
             if ( not subclass.HasBase(AutoHotUnitSuite)) {
                 throw TypeError("expected AutoHotUnitSuite but got " subclass.Prototype.__Class)
             }
-            this.testSuiteDict.Set(subclass.Prototype.__Class, subclass)
+            this.registeredTestSuites.Set(subclass.Prototype.__Class, subclass)
         }
     }
 
-    /** @type {AutoHotUnitCLIReporter} */
-    reporter := ''
-
-    /** Weather or not to abort early when an unexpected error is encountered (i.e. not just a failed assertion). This implies `PrintStackTrace`. */
-    AbortOnError := false
-
-    /** Weather or not to print the stack trace of unexpected errors. This is overridden by `AbortOnError`. */
-    PrintStackTrace := false
-
-    /**
-     * Runs all registered test suites in order.
-     */
-    RunSuites() {
+    isProtectedProp(propName) {
         static protectedProps := Map()
         if not protectedProps.Count {
-            for pName in ["beforeAll", "beforeEach", "afterEach", "afterAll", "isDisabled", "isTest"] {
+            for pName in ["beforeAll", "beforeEach", "afterEach", "afterAll", "isDisabled", "isTest", "__Class"] {
                 protectedProps.Set(pName, true)
             }
         }
+        return protectedProps.Has(propName)
+    }
 
+    /**
+     * Runs all registered test suites in any order.
+     */
+    RunSuites() {
         try { ; <- try to catch abort signals
             this.reporter.onRunStart()
-            for suiteName, suiteClass in this.testSuiteDict {
+            for suiteName, suiteClass in this.registeredTestSuites {
+                /** An instance of the test suite to be executed. */
                 suiteInstance := suiteClass()
+
                 this.reporter.onSuiteStart(suiteName)
 
-                testFuncDict := Map()
+                /** All the tests to execute. These are gathered from the test suite's method members as well as any explicitly registered test functions. */
+                gatheredTests := Map()
+
+                ; > loop over the test suite's properties to collect the test methods..
                 for propertyName in suiteInstance.base.OwnProps() {
                     ; If the property name is one of the suite base class methods, skip it
-                    if protectedProps.Has(propertyName) {
+                    if this.isProtectedProp(propertyName) {
                         continue
                     }
 
@@ -159,39 +177,44 @@ class AutoHotUnitManager {
 
                     propVal := GetMethod(suiteInstance, propertyName)
                     if (propVal is Func) {
-                        testFuncDict.Set(propertyName, propVal.Bind(suiteInstance))
+                        gatheredTests.Set(propertyName, propVal.Bind(suiteInstance))
                     }
                 }
 
-                if (this.testFuncDict.Has(suiteName)) {
-                    for testName, testFunc in this.testFuncDict.Get(suiteName) {
-                        if testFuncDict.Has(testName) {
+                /** Add any test functions, that were explicitly registered for this test suite. */
+                if (this.registeredTestFuncs.Has(suiteName)) {
+                    for testName, testFunc in this.registeredTestFuncs.Get(suiteName) {
+                        if gatheredTests.Has(testName) {
                             throw Error("the dynamically registered test '" testName "' clashed with the identically named instance member test method " suiteName "." testName)
                         }
-                        testFuncDict.Set(testName, testFunc)
+                        gatheredTests.Set(testName, testFunc)
                     }
                 }
+                ; ! all tests are gathered -> start testing.
 
                 try {
                     suiteInstance.beforeAll()
                 } catch Error as e {
-                    this.reporter.onTestResult("beforeAll", "failed", "", e)
+                    this.reporter.onTestResult("beforeAll", "failed", { error: e })
                     continue
                 }
 
-                if not testFuncDict.Count {
+                if not gatheredTests.Count {
                     this.reporter.printLine("(no tests have been registered yet!)", "red")
                 } else {
-                    for testName, testFunc in testFuncDict {
+                    ; skipRemainingTests() {
+                    ;     this.reporter.printLine("skipping remaining tests")
+                    ; }
+                    for testName, testFunc in gatheredTests {
                         if suiteInstance.isDisabled(testName) {
-                            this.reporter.printLine("test '" testName "' is disabled -> skip", 'green')
+                            this.reporter.onTestResult(testName, 'skipped')
                             continue
                         }
 
                         try {
                             suiteInstance.beforeEach()
                         } catch Error as e {
-                            this.reporter.onTestResult(testName, "failed", "beforeEach", e)
+                            this.reporter.onTestResult(testName, "failed", { where: "beforeEach", error: e })
                             continue
                         }
 
@@ -199,31 +222,31 @@ class AutoHotUnitManager {
                             this.reporter.onTestStart(testName)
                             testFunc()
                         } catch Error as e {
-                            this.reporter.onTestResult(testName, "failed", "test", e)
+                            this.reporter.onTestResult(testName, "failed", { where: "test", error: e })
                             continue
                         }
 
                         try {
                             suiteInstance.afterEach()
                         } catch Error as e {
-                            this.reporter.onTestResult(testName, "failed", "afterEach", e)
+                            this.reporter.onTestResult(testName, "failed", { where: "afterEach", error: e })
                             continue
                         }
 
-                        this.reporter.onTestResult(testName, "passed", "", "")
+                        this.reporter.onTestResult(testName, "passed")
                     }
                 }
 
                 try {
                     suiteInstance.afterAll()
                 } catch Error as e {
-                    this.reporter.onTestResult("afterAll", "failed", "", e)
+                    this.reporter.onTestResult("afterAll", "failed", { error: e })
                     continue
                 }
 
                 this.reporter.onSuiteEnd(suiteName)
-            }
-            this.reporter.onRunComplete()
+            } ; loop over suites
+            this.reporter.onRunEnd()
         } catch AutoHotUnitAbortSignal as e {
             ; ! the tests where aborted, the error is already printed to the console -> exit.
             this.reporter.printLine("(tests where interrupted early)", "red")
@@ -231,24 +254,44 @@ class AutoHotUnitManager {
     }
 }
 
+/**
+ * A reporter class that handles messaging (logging) for test suite execution.
+ */
 class AutoHotUnitCLIReporter {
-    currentSuiteName := ""
-    failures := []
-    ; @See https://misc.flogisoft.com/bash/tip_colors_and_formatting
-    red := "[31m"
-    green := "[32m"
-    reset := "[0m"
+
+    class Results {
+        __New(name) {
+            this.name := name
+        }
+        name := ""
+        skipList := []
+        failList := []
+        succList := []
+    }
 
     /**
-     * 
-     * @param str 
-     * @param {'green'|'red'} color 
+     * Suite results for all test suites.
+     * @type {AutoHotUnitCLIReporter.Results[]}
      */
-    printLine(str, color := unset) {
-        ; TODO use my AnsiColorPrinter instead
-        if IsSet(color) {
-            colCode := this.%color%
-            str := colCode str this.reset
+    allSuiteResults := ''
+
+    /**
+     * An object holding  information about the active test suite.
+     * @type {AutoHotUnitCLIReporter.Results}
+     */
+    activeSuiteResults := ''
+
+    /**
+     * Prints the given text to the console, optionally applying ansi color codes.
+     * @See https://misc.flogisoft.com/bash/tip_colors_and_formatting
+     * @param str The text to print.
+     * @param {'green'|'red'|'yellow'} color The color to use.
+     */
+    printLine(str, color := '') {
+        static ansiCodes := { red: "[31m", green: "[32m", reset: "[0m" }
+        if color {
+            colCode := ansiCodes.%color%
+            str := colCode StrReplace(str, "`n", "`n" colCode) ansiCodes.reset
         }
         try {
             FileAppend(str "`n", "*", "UTF-8 `n")
@@ -260,12 +303,16 @@ class AutoHotUnitCLIReporter {
     }
 
     onRunStart() {
-        this.printLine("Starting test run`r`n")
+        this.printLine("Starting test run")
+        this.allSuiteResults := []
     }
 
     onSuiteStart(suiteName) {
-        this.printLine("starting test suite " suiteName "")
-        this.currentSuiteName := suiteName
+        this.printLine("Starting test suite " suiteName "")
+        if (this.activeSuiteResults) {
+            this.allSuiteResults.Push(this.activeSuiteResults)
+        }
+        this.activeSuiteResults := AutoHotUnitCLIReporter.Results(suiteName)
     }
 
     onTestStart(testName) {
@@ -275,76 +322,124 @@ class AutoHotUnitCLIReporter {
     /**
      * 
      * @param {String} testName The name of the test method.
-     * @param {'passed'|'failed'} status The status of the test result. Either 'passed' or 'failed'.
-     * @param {String} where Where the error was thrown. 
-     * @param {Error} error The error object.
+     * @param {'passed'|'failed'|'skipped'} status The status of the test result.
+     * @param {Object} [info] Additional information (especially for errors).
+     * @param {String} [info.where] Where the error was thrown. 
+     * @param {Error} [info.error] The error object.
      */
-    onTestResult(testName, status, where, error) {
-        if (status != "passed" && status != "failed") {
-            throw Error("Invalid status: " . status)
-        }
+    onTestResult(testName, status, info := {}) {
+        static infoBase := { error: '', where: '' }
+        info.Base := infoBase
 
-        prColor := (status == "failed") ? "red" : "green"
-        prefix := (status == "failed") ? "✕" : "✓"
+        static prColors := Map('passed', 'green', 'failed', 'red', 'skipped', '')
+        static statusSymbols := Map('passed', '✓', 'failed', '✕', 'skipped', '↷')
 
-        this.printLine("  " prefix " " testName " " status, prColor)
+        statusSymbol := statusSymbols.Get(status)
+        prColor := prColors.Get(status)
 
-        indentMsg(s) {
-            static indentation := "   >| "
+        static spaceStr := "`s`s"
+        static indentMsg(s) {
+            static indentation := spaceStr " >| "
             return StrReplace(indentation s, "`n", "`n" indentation)
         }
 
-        if (status == "failed") {
-            isAssertionError := error is AutoHotUnitAssertError
-            ; > print the error's class name if it was an unexpected one
-            errTypeInfo := (isAssertionError) ? ("") : ("[" Type(error) "] ")
-            errMsg := error.Message . (error.Extra = '' ? "" : " (Specifically: '" error.Extra "')")
-            indentedErrMsg := indentMsg(errTypeInfo errMsg)
-            ; > print the message right now (live)..
-            this.printLine(indentedErrMsg, prColor)
-            ; > store the message for the final summary at the end..
-            this.failures.push(this.currentSuiteName "." testName " " where " failed:`n" indentedErrMsg)
+        switch status {
+            default:
+                throw ValueError("invalid status: " . status, -1, status)
+            case 'passed':
+                shortMsg := statusSymbol " " testName " passed"
+                this.printLine(spaceStr shortMsg, prColor)
+                fullMsg := this.activeSuiteResults.name "." shortMsg
+                this.activeSuiteResults.succList.Push(fullMsg)
+            case 'skipped':
+                shortMsg := statusSymbol " " testName " was skipped"
+                this.printLine(spaceStr shortMsg, prColor)
+                fullMsg := this.activeSuiteResults.name "." shortMsg
+                this.activeSuiteResults.skipList.Push(fullMsg)
+            case 'failed':
+                err := info.error
+                isAssertionError := err is AutoHotUnitAssertError
+                ; > print the error's class name if it was an unexpected one
+                errTypeInfo := (isAssertionError) ? ("") : ("[" Type(err) "] ")
+                errMsg := err.Message . (err.Extra = '' ? "" : " (Specifically: '" err.Extra "')")
+                indentedErrMsg := indentMsg(errTypeInfo errMsg)
+                ; > print the message right now (live)..
+                this.printLine(indentedErrMsg, prColor)
+                ; > store the message for the final summary at the end..
+                fullMsg := this.activeSuiteResults.name "." testName " " info.where " failed:`n" indentedErrMsg
+                this.activeSuiteResults.failList.Push(fullMsg)
 
-            if ( not isAssertionError) {
-                ; ! we encountered an unexpected error!
-                if (ahu.PrintStackTrace or ahu.AbortOnError) {
-                    ; > print the stack trace
-                    this.printLine("Stack Trace:`n" error.Stack "`n")
-                }
+                if ( not isAssertionError) {
+                    ; ! we encountered an unexpected error!
+                    if (ahu.PrintStackTrace or ahu.AbortOnError) {
+                        ; > print the stack trace
+                        this.printLine("Stack Trace:`n" err.Stack "`n")
+                    }
 
-                if (ahu.AbortOnError) {
-                    ; > abort the test run here, since a hard error was encountered.
-                    throw AutoHotUnitAbortSignal()
+                    if (ahu.AbortOnError) {
+                        ; > abort the test run here, since a hard error was encountered.
+                        throw AutoHotUnitAbortSignal()
+                    }
                 }
-            }
-        }
+        } ; switch on status
     }
 
     onSuiteEnd(suiteName) {
-        this.printLine("ending test suite '" suiteName "'")
+        this.printLine("Ending test suite '" suiteName "'")
     }
 
-    onRunComplete() {
-        this.printLine("")
-        postfix := "All tests passed."
-        if (this.failures.Length > 0) {
-            postfix := this.failures.Length . " test(s) failed."
+    onRunEnd() {
+        if this.activeSuiteResults {
+            this.allSuiteResults.Push(this.activeSuiteResults)
+            this.activeSuiteResults := ''
         }
-        this.printLine("Test run complete. " postfix)
+        asr := this.allSuiteResults
+        this.allSuiteResults := ''
 
-        if (this.failures.Length > 0) {
-            this.printLine("")
+        sumSkipCount := 0
+        sumFailCount := 0
+        sumSuccCount := 0
+        for suiteResults in asr {
+            skipCount := suiteResults.skipList.Length
+            failCount := suiteResults.failList.Length
+            succCount := suiteResults.succList.Length
+            totalCount := skipCount + failCount + succCount
+
+            this.printLine("suite summary " suiteResults.name
+                ": " failCount "/" totalCount " failed"
+                ", " skipCount "/" totalCount " skipped"
+                ", " succCount "/" totalCount " succeeded"
+            )
+
+            sumSkipCount += skipCount
+            sumFailCount += failCount
+            sumSuccCount += succCount
+
+            for failMsg in suiteResults.failList {
+                this.printLine(failMsg, "red")
+            }
         }
+        sumTotalCount := sumSkipCount + sumFailCount + sumSuccCount
 
-        for i, failure in this.failures {
-            this.printLine(failure, "red")
-        }
-
-        Exit(this.failures.Length)
+        this.printLine("full summary (all suites)"
+            ": " sumFailCount "/" sumTotalCount " failed"
+            ", " sumSkipCount "/" sumTotalCount " skipped"
+            ", " sumSuccCount "/" sumTotalCount " succeeded"
+        )
     }
 }
 
+/**
+ * A collection of assert functions to be used by test suites. The test suite base class has an instance at field {@link AutoHotUnitSuite#assert}.
+ */
 class AutoHotUnitAsserter {
+
+    /**
+     * 
+     * @param actual 
+     * @param expected 
+     * @returns {Integer} 
+     */
     static deepEqual(actual, expected) {
         if (actual is Array && expected is Array) {
             if (actual.Length != expected.Length) {
@@ -609,8 +704,14 @@ class AutoHotUnitAsserter {
     }
 }
 
+/**
+ * An error class representing assertion errors. Instances of this class are thrown by assertion functions ({@link AutoHotUnitAsserter}).
+ */
 class AutoHotUnitAssertError extends Error {
 }
 
+/**
+ * An instance of this class may be thrown during test execution, to abort it early. The {@link AutoHotUnitManager} will catch the exception and print a warning before exiting (without re-throwing). See also {@link AutoHotUnitManager#AbortOnError}.
+ */
 class AutoHotUnitAbortSignal extends Error {
 }
