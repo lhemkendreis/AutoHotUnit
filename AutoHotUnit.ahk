@@ -44,8 +44,8 @@ class AutoHotUnitSuite {
 
     /**
      * Execute once for each test, to determine weather or not it should be skipped. 
-     * @param testName The name of the test. The default implementation returns false for everything. This may be overridden by child classes.
-     * @param testFunc The test function as registered.
+     * @param {String} testName The name of the test. The default implementation returns false for everything. This may be overridden by child classes.
+     * @param {Func} testFunc The test function as registered.
      * @returns {Integer} True, if the test should be skipped.
      */
     isDisabled(testName, testFunc) {
@@ -685,6 +685,7 @@ class AutoHotUnitAsserter {
         densify(str) {
             str := StrReplace(str, "`n", "``n")
             str := StrReplace(str, "`r", "``r")
+            str := StrReplace(str, "`t", "``t")
             return str
         }
 
