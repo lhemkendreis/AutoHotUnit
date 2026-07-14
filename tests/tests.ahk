@@ -16,33 +16,37 @@ FileEncoding('UTF-8')
 #Include math.test.ahk
 #Include other.test.ahk
 
-/** A random class which should not be able to be registered as a test suite, because it does not inherit from {@link AutoHotUnitSuite}. */
-class RandomClass {
-}
-try {
-    OutputDebug("trying to register a random class (should fail)`n")
-    ahu.RegisterSuite(RandomClass)
-} catch Error as err {
-    OutputDebug("trying to register a random class failed as expected: " err.Message "`n")
-}
-else {
-    throw Error("trying to register a random class should have thrown an error but it didn't!?")
-}
+runAhuTests() {
+    try {
+        OutputDebug("trying to register a random class (should fail)`n")
+        ahu.RegisterSuite(RandomClass)
+    } catch Error as err {
+        OutputDebug("trying to register a random class failed as expected: " err.Message "`n")
+    }
+    else {
+        throw Error("trying to register a random class should have thrown an error but it didn't!?")
+    }
 
-; Register the test suites with AutoHotUnit..
-ahu.RegisterSuite(MathSuite, OtherSuite)
+    ; Register the test suites with AutoHotUnit..
+    ahu.RegisterSuite(MathSuite, OtherSuite)
 
-; Run all test suites
-try {
-    ahu.PrintStackTrace := true
-    ahu.Verbose := true
-    OutputDebug("running test suites`n")
-    ahu.RunSuites()
-    OutputDebug("done running test suites`n")
-} catch AutoHotUnitAbortSignal as abort {
-    OutputDebug("received AHU abort message: " abort.Message "`n")
+    ; Run all test suites
+    try {
+        ahu.PrintStackTrace := true
+        ahu.Verbose := true
+        OutputDebug("running test suites`n")
+        ahu.RunSuites()
+        OutputDebug("done running test suites`n")
+    } catch AutoHotUnitAbortSignal as abort {
+        OutputDebug("received AHU abort message: " abort.Message "`n")
+    }
 }
+runAhuTests()
 
 ; To execute all tests from the command line, use the following command:
 ; autohotkey tests.ahk | echo
 ; The echo is required in order to print output to the terminal.
+
+/** A random class which should not be able to be registered as a test suite, because it does not inherit from {@link AutoHotUnitSuite}. */
+class RandomClass {
+}
